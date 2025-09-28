@@ -22,13 +22,7 @@ import { useAuth } from '@/context/AuthContext';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
-
-interface Player {
-  id: string;
-  name: string;
-  position: number; // 0-7 positions around circle
-  color: string;
-}
+import GameService, { Game, GameParticipant } from '@/services/game.service';
 
 interface SpinResult {
   spinner_id: string;
@@ -41,8 +35,7 @@ interface SpinResult {
 
 interface GameState {
   status: 'waiting' | 'spinning' | 'result' | 'finished';
-  players: Player[];
-  current_spinner?: Player;
+  current_spinner?: GameParticipant;
   spin_history: SpinResult[];
   round: number;
 }
@@ -61,35 +54,107 @@ export default function SpinBottleGameScreen() {
   const router = useRouter();
   const { user } = useAuth();
   
+  const [game, setGame] = useState<Game | null>(null);
+  const [participants, setParticipants] = useState<GameParticipant[]>([]);
   const [gameState, setGameState] = useState<GameState>({
     status: 'waiting',
-    players: [
-      { id: user?.id || '1', name: user?.full_name || 'You', position: 0, color: playerColors[0] },
-      { id: '2', name: 'Alice', position: 1, color: playerColors[1] },
-      { id: '3', name: 'Bob', position: 2, color: playerColors[2] },
-      { id: '4', name: 'Charlie', position: 3, color: playerColors[3] },
-      { id: '5', name: 'Diana', position: 4, color: playerColors[4] },
-      { id: '6', name: 'Eve', position: 5, color: playerColors[5] },
-    ],
     spin_history: [],
     round: 1,
   });
-
-  const [loading, setLoading] = useState(false);
-  const [selectedTarget, setSelectedTarget] = useState<Player | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [selectedTarget, setSelectedTarget] = useState<GameParticipant | null>(null);
   
   const spinAnimation = useRef(new Animated.Value(0)).current;
   const bottleRotation = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    // Set initial current spinner to first player
-    if (!gameState.current_spinner && gameState.players.length > 0) {
+    if (id) {
+      fetchGameData();
+      checkAdminStatus();
+      
+      // Set up real-time subscriptions
+      const gameSubscription = GameService.subscribeToGameChanges(id as string, (payload) => {
+        console.log('Game real-time update:', payload);
+        fetchGameData(); // Refresh game data when changes occur
+      });
+      
+      const participantSubscription = GameService.subscribeToParticipantChanges(id as string, (payload) => {
+        console.log('Participants real-time update:', payload);
+        fetchGameData(); // Refresh participant data when changes occur
+      });
+      
+      return () => {
+        gameSubscription.unsubscribe();
+        participantSubscription.unsubscribe();
+      };
+    }
+  }, [id]);
+
+  useEffect(() => {
+    // Set initial current spinner to first participant
+    if (!gameState.current_spinner && participants.length > 0) {
       setGameState(prev => ({
         ...prev,
-        current_spinner: prev.players[0],
+        current_spinner: participants[0],
       }));
     }
-  }, []);
+  }, [participants]);
+
+  const fetchGameData = async () => {
+    try {
+      setLoading(true);
+      const gameData = await GameService.getGame(id as string);
+      
+      if (!gameData) {
+        Alert.alert('Error', 'Game not found');
+        router.back();
+        return;
+      }
+
+      if (gameData.type !== 'spin_bottle') {
+        Alert.alert('Error', 'This is not a spin the bottle game');
+        router.back();
+        return;
+      }
+
+      if (!gameData.session_active) {
+        Alert.alert('Game Not Active', 'This game session is not currently active.');
+        router.back();
+        return;
+      }
+
+      setGame(gameData);
+      
+      const participantData = await GameService.getGameParticipants(id as string);
+      setParticipants(participantData);
+      
+      // Update game state with server data
+      const serverState = gameData.state || {};
+      setGameState(prev => ({
+        ...prev,
+        status: serverState.status || 'waiting',
+        spin_history: serverState.spin_history || [],
+        round: serverState.round || 1,
+      }));
+      
+    } catch (error: any) {
+      console.error('Error fetching game data:', error);
+      Alert.alert('Error', error.message || 'Failed to load game data');
+      router.back();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const checkAdminStatus = async () => {
+    try {
+      const adminStatus = await GameService.isCurrentUserAdmin();
+      setIsAdmin(adminStatus);
+    } catch (error) {
+      console.error('Error checking admin status:', error);
+    }
+  };
 
   const getPlayerPosition = (position: number, total: number) => {
     const angle = (position / total) * 2 * Math.PI - Math.PI / 2; // Start from top
@@ -99,60 +164,77 @@ export default function SpinBottleGameScreen() {
     return { x, y, angle: angle * (180 / Math.PI) + 90 };
   };
 
-  const spin = () => {
+  const getParticipantColor = (index: number) => {
+    return playerColors[index % playerColors.length];
+  };
+
+  const spin = async () => {
     if (gameState.status === 'spinning') return;
     
-    setGameState(prev => ({ ...prev, status: 'spinning' }));
+    if (!isAdmin) {
+      Alert.alert('Admin Required', 'Only administrators can spin the bottle.');
+      return;
+    }
+
+    if (participants.length < 2) {
+      Alert.alert('Not Enough Players', 'At least 2 players are required to spin the bottle.');
+      return;
+    }
     
-    // Generate random spin (multiple rotations + final position)
-    const baseRotation = spinAnimation._value || 0;
-    const spins = Math.floor(Math.random() * 3 + 3); // 3-5 full rotations
-    const finalAngle = Math.random() * 360;
-    const totalRotation = baseRotation + (spins * 360) + finalAngle;
-    
-    // Calculate which player the bottle will point to
-    const normalizedAngle = (finalAngle + 90) % 360; // Adjust for starting position
-    const playerIndex = Math.floor((normalizedAngle / 360) * gameState.players.length);
-    const targetPlayer = gameState.players[playerIndex];
-    
-    Animated.timing(spinAnimation, {
-      toValue: totalRotation,
-      duration: 3000 + Math.random() * 2000, // 3-5 seconds
-      useNativeDriver: true,
-    }).start(() => {
-      // Show result
-      setSelectedTarget(targetPlayer);
+    try {
+      setGameState(prev => ({ ...prev, status: 'spinning' }));
       
-      const spinResult: SpinResult = {
-        spinner_id: gameState.current_spinner?.id || '',
-        spinner_name: gameState.current_spinner?.name || '',
-        target_id: targetPlayer.id,
-        target_name: targetPlayer.name,
-        spin_angle: finalAngle,
-        timestamp: Date.now(),
-      };
+      // Use GameService to spin the bottle
+      const spinResult = await GameService.spinBottle(id as string);
       
-      setTimeout(() => {
-        setGameState(prev => ({
-          ...prev,
-          status: 'result',
-          spin_history: [spinResult, ...prev.spin_history],
-        }));
-      }, 500);
-    });
+      // Generate random spin animation (multiple rotations + final position)
+      const baseRotation = spinAnimation._value || 0;
+      const spins = Math.floor(Math.random() * 3 + 3); // 3-5 full rotations
+      const finalAngle = spinResult.angle;
+      const totalRotation = baseRotation + (spins * 360) + finalAngle;
+      
+      Animated.timing(spinAnimation, {
+        toValue: totalRotation,
+        duration: 3000 + Math.random() * 2000, // 3-5 seconds
+        useNativeDriver: true,
+      }).start(() => {
+        // Show result
+        setSelectedTarget(spinResult.selectedPlayer);
+        
+        const spinHistoryResult: SpinResult = {
+          spinner_id: user?.id || '',
+          spinner_name: user?.full_name || 'Admin',
+          target_id: spinResult.selectedPlayer.user_id,
+          target_name: spinResult.selectedPlayer.profile?.full_name || 'Unknown',
+          spin_angle: finalAngle,
+          timestamp: Date.now(),
+        };
+        
+        setTimeout(() => {
+          setGameState(prev => ({
+            ...prev,
+            status: 'result',
+            spin_history: [spinHistoryResult, ...prev.spin_history],
+          }));
+        }, 500);
+      });
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Failed to spin the bottle');
+      setGameState(prev => ({ ...prev, status: 'waiting' }));
+    }
   };
 
   const nextSpinner = () => {
-    const currentIndex = gameState.players.findIndex(p => p.id === gameState.current_spinner?.id);
-    const nextIndex = (currentIndex + 1) % gameState.players.length;
-    const nextPlayer = gameState.players[nextIndex];
+    const currentIndex = participants.findIndex(p => p.user_id === gameState.current_spinner?.user_id);
+    const nextIndex = (currentIndex + 1) % participants.length;
+    const nextPlayer = participants[nextIndex];
     
     setSelectedTarget(null);
     setGameState(prev => ({
       ...prev,
       status: 'waiting',
       current_spinner: nextPlayer,
-      round: currentIndex === gameState.players.length - 1 ? prev.round + 1 : prev.round,
+      round: currentIndex === participants.length - 1 ? prev.round + 1 : prev.round,
     }));
   };
 
@@ -162,7 +244,7 @@ export default function SpinBottleGameScreen() {
     setGameState(prev => ({
       ...prev,
       status: 'waiting',
-      current_spinner: prev.players[0],
+      current_spinner: participants[0],
       spin_history: [],
       round: 1,
     }));
@@ -202,7 +284,7 @@ export default function SpinBottleGameScreen() {
           <View className="flex-row items-center">
             <Users size={20} color="#6B7280" />
             <Text className="text-gray-600 ml-2">
-              {gameState.players.length} Players
+              {participants.length} Players
             </Text>
           </View>
           
@@ -230,7 +312,16 @@ export default function SpinBottleGameScreen() {
           <View className="mt-3 flex-row items-center">
             <Text className="text-gray-600">Current spinner: </Text>
             <Text className="font-semibold text-gray-900">
-              {gameState.current_spinner.name}
+              {gameState.current_spinner.profile?.full_name || 'Unknown'}
+            </Text>
+          </View>
+        )}
+        
+        {isAdmin && (
+          <View className="mt-2 flex-row items-center">
+            <Crown size={16} color="#F59E0B" />
+            <Text className="text-amber-600 ml-1 font-medium text-sm">
+              Admin - You can spin the bottle
             </Text>
           </View>
         )}
@@ -255,15 +346,16 @@ export default function SpinBottleGameScreen() {
             }}
           />
           
-          {/* Players around circle */}
-          {gameState.players.map((player, index) => {
-            const position = getPlayerPosition(index, gameState.players.length);
-            const isSpinner = player.id === gameState.current_spinner?.id;
-            const isTarget = player.id === selectedTarget?.id;
+          {/* Participants around circle */}
+          {participants.map((participant, index) => {
+            const position = getPlayerPosition(index, participants.length);
+            const isSpinner = participant.user_id === gameState.current_spinner?.user_id;
+            const isTarget = participant.user_id === selectedTarget?.user_id;
+            const playerColor = getParticipantColor(index);
             
             return (
               <View
-                key={player.id}
+                key={participant.user_id}
                 className="absolute items-center"
                 style={{
                   transform: [
@@ -278,7 +370,7 @@ export default function SpinBottleGameScreen() {
                     isTarget ? 'border-red-500' : 'border-gray-200'
                   }`}
                   style={{ 
-                    backgroundColor: player.color + '20',
+                    backgroundColor: playerColor + '20',
                     borderWidth: isSpinner || isTarget ? 3 : 2,
                   }}
                 >
@@ -286,7 +378,7 @@ export default function SpinBottleGameScreen() {
                   {isTarget && <Target size={16} color="#EF4444" />}
                   {!isSpinner && !isTarget && (
                     <Text className="text-xs font-bold text-gray-700">
-                      {player.name.charAt(0)}
+                      {(participant.profile?.full_name || 'U').charAt(0)}
                     </Text>
                   )}
                 </View>
@@ -299,7 +391,7 @@ export default function SpinBottleGameScreen() {
                   style={{ maxWidth: 60 }}
                   numberOfLines={1}
                 >
-                  {player.name}
+                  {participant.profile?.full_name || 'Unknown'}
                 </Text>
               </View>
             );
@@ -362,10 +454,10 @@ export default function SpinBottleGameScreen() {
               Bottle points to...
             </Text>
             <Text className="text-2xl font-bold text-green-600 mb-2">
-              {selectedTarget.name}!
+              {selectedTarget.profile?.full_name || 'Unknown'}!
             </Text>
             <Text className="text-gray-600 text-center">
-              Spun by {gameState.current_spinner?.name}
+              Spun by Admin
             </Text>
           </View>
         </Card>
@@ -411,11 +503,12 @@ export default function SpinBottleGameScreen() {
       <View className="flex-row mx-4 mb-4 space-x-3">
         {gameState.status === 'waiting' ? (
           <Button
-            title="Spin the Bottle"
+            title={isAdmin ? "Spin the Bottle" : "Admin Required to Spin"}
             onPress={spin}
-            variant="primary"
+            variant={isAdmin ? "primary" : "outline"}
+            disabled={!isAdmin}
             className="flex-1"
-            leftIcon={<RotateCcw size={18} color="#FFFFFF" />}
+            leftIcon={<RotateCcw size={18} color={isAdmin ? "#FFFFFF" : "#6B7280"} />}
           />
         ) : gameState.status === 'result' ? (
           <>

@@ -18,9 +18,9 @@ export const APP_CONFIG = {
 } as const;
 
 export const VALIDATION_RULES = {
-  EMAIL_REGEX: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
-  PASSWORD_MIN_LENGTH: 8,
-  NAME_MIN_LENGTH: 2,
+  EMAIL_REGEX: /^.+@.+$/,  // Very basic email check - just needs @ symbol
+  PASSWORD_MIN_LENGTH: 6,   // Reduced from 8 to 6
+  NAME_MIN_LENGTH: 1,       // Reduced from 2 to 1
   NAME_MAX_LENGTH: 50,
 } as const;
 

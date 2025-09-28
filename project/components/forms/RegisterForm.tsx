@@ -26,7 +26,7 @@ const registerSchema = z
     email: z
       .string()
       .min(1, 'Email is required')
-      .regex(VALIDATION_RULES.EMAIL_REGEX, 'Please enter a valid email'),
+      .includes('@', 'Email must contain @ symbol'),
     password: z
       .string()
       .min(

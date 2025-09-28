@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 import { useEffect } from 'react';
 import { Tabs, useRouter, useSegments } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -28,12 +27,6 @@ export default function TabLayout() {
     return null;
   }
 
-=======
-import { Tabs } from 'expo-router';
-import { Chrome as Home, User, Settings } from 'lucide-react-native';
-
-export default function TabLayout() {
->>>>>>> caed9555552adbddeacca4e306068698fc829ffc
   return (
     <Tabs
       screenOptions={{

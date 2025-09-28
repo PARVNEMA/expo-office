@@ -25,14 +25,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isAuthenticated, setisAuthenticated] = useState(!!(user && token));
+  // const [isAuthenticated, setisAuthenticated] = useState(!!(user && token));
 
-<<<<<<< HEAD
   const isAuthenticated = !!(user && session);
   const isAdmin = user?.role === 'admin';
-=======
-  // const isAuthenticated = !!(user && token);
->>>>>>> caed9555552adbddeacca4e306068698fc829ffc
 
   useEffect(() => {
     initializeAuth();
@@ -41,33 +37,26 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const initializeAuth = async () => {
     try {
       setIsLoading(true);
-      
+
       // Get current session and user
       const [currentSession, currentUser] = await Promise.all([
         authService.getCurrentSession(),
         authService.getCurrentUser(),
       ]);
 
-<<<<<<< HEAD
       if (currentSession && currentUser) {
         setSession(currentSession);
         setUser(currentUser);
-=======
-      if (storedUser && storedToken) {
-        setUser(storedUser);
-        setToken(storedToken);
-        setisAuthenticated(true);
->>>>>>> caed9555552adbddeacca4e306068698fc829ffc
       }
 
       // Set up auth state listener
-      const { data: { subscription } } = authService.onAuthStateChange(
-        (user, session) => {
-          setUser(user);
-          setSession(session);
-          setIsLoading(false);
-        }
-      );
+      const {
+        data: { subscription },
+      } = authService.onAuthStateChange((user, session) => {
+        setUser(user);
+        setSession(session);
+        setIsLoading(false);
+      });
 
       // Cleanup subscription on unmount
       return () => {
@@ -95,11 +84,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   };
 
-  const register = async (credentials: RegisterCredentials): Promise<{ requiresEmailConfirmation?: boolean }> => {
+  const register = async (
+    credentials: RegisterCredentials
+  ): Promise<{ requiresEmailConfirmation?: boolean }> => {
     try {
       setIsLoading(true);
       const authResponse = await authService.register(credentials);
-      
+
       // Handle email confirmation case
       if (authResponse.requiresEmailConfirmation) {
         console.log('Registration successful but email confirmation required');
@@ -107,7 +98,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         setSession(null);
         return { requiresEmailConfirmation: true };
       }
-      
+
       setUser(authResponse.user);
       setSession(authResponse.session);
       return { requiresEmailConfirmation: false };
@@ -130,12 +121,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   };
 
-  const updateProfile = async (updates: Partial<UserProfile>): Promise<void> => {
+  const updateProfile = async (
+    updates: Partial<UserProfile>
+  ): Promise<void> => {
     try {
       if (!user) {
         throw new Error('No user logged in');
       }
-      
+
       setIsLoading(true);
       const updatedUser = await authService.updateUserProfile(user.id, updates);
       setUser(updatedUser);

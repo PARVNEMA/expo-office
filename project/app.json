@@ -6,21 +6,6 @@
     "orientation": "portrait",
     "scheme": "office-connect",
     "userInterfaceStyle": "automatic",
-<<<<<<< HEAD
-    "assetBundlePatterns": [
-      "**/*"
-    ],
-    "ios": {
-      "supportsTablet": true
-    },
-    "android": {},
-    "web": {},
-    "plugins": [
-      "expo-router",
-      "expo-font",
-      "expo-secure-store",
-      "expo-web-browser"
-=======
     "newArchEnabled": true,
     "splash": {
       "image": "./assets/images/splash.jpg",
@@ -68,7 +53,6 @@
           "resizeMode": "cover"
         }
       ]
->>>>>>> caed9555552adbddeacca4e306068698fc829ffc
     ],
     "experiments": {
       "typedRoutes": true

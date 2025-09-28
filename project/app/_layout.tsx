@@ -6,6 +6,7 @@ import '../global.css';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import * as SplashScreen from 'expo-splash-screen';
+import { useEffect } from 'react';
 
 SplashScreen.preventAutoHideAsync();
 export const MainLayout = () => {
@@ -39,24 +40,9 @@ export default function RootLayout() {
 
   return (
     <ErrorBoundary>
-<<<<<<< HEAD
-      <SafeAreaProvider>
-        <AuthProvider>
-          <SafeAreaView className="flex-1">
-            <Stack screenOptions={{ headerShown: false }}>
-              <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-              <Stack.Screen name="+not-found" />
-            </Stack>
-            <StatusBar style="auto" />
-          </SafeAreaView>
-        </AuthProvider>
-      </SafeAreaProvider>
-=======
       <AuthProvider>
         <MainLayout />
       </AuthProvider>
->>>>>>> caed9555552adbddeacca4e306068698fc829ffc
     </ErrorBoundary>
   );
 }

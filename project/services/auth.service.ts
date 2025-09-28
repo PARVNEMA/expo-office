@@ -82,11 +82,11 @@ class AuthService {
         throw new Error('Registration failed - no user data returned from Supabase');
       }
 
-      // In some cases, session might be null if email confirmation is required
+      // Check if we have a session (should be present if email confirmation is disabled)
       if (!authData.session) {
-        console.warn('Registration successful but no session returned (email confirmation may be required)');
+        console.warn('Registration successful but no session returned');
         console.log('User created with ID:', authData.user.id);
-        // We'll still try to create the profile
+        // Still create the profile but inform about potential email confirmation
       }
 
       // Create user profile in database

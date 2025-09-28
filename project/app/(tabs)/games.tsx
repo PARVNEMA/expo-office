@@ -14,18 +14,7 @@ import { useAuth } from '@/context/AuthContext';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
-
-interface Game {
-  id: string;
-  name: string;
-  type: 'buzzer' | 'trivia' | 'spin_bottle' | 'poll';
-  created_by: string;
-  is_active: boolean;
-  max_players?: number;
-  current_players: number;
-  state: any;
-  created_at: string;
-}
+import GameService, { Game } from '@/services/game.service';
 
 const gameTypeIcons = {
   buzzer: 'flash' as const,
@@ -54,56 +43,40 @@ export default function GamesScreen() {
   const [games, setGames] = useState<Game[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-
-  // Mock data for now - in real app this would come from Supabase
-  const mockGames: Game[] = [
-    {
-      id: '1',
-      name: 'Quick Buzzer Round',
-      type: 'buzzer',
-      created_by: 'admin',
-      is_active: true,
-      max_players: 10,
-      current_players: 3,
-      state: { status: 'waiting' },
-      created_at: new Date().toISOString(),
-    },
-    {
-      id: '2', 
-      name: 'Office Trivia Challenge',
-      type: 'trivia',
-      created_by: 'admin',
-      is_active: true,
-      max_players: 20,
-      current_players: 8,
-      state: { status: 'active', round: 1 },
-      created_at: new Date().toISOString(),
-    },
-    {
-      id: '3',
-      name: 'Team Building Spin',
-      type: 'spin_bottle',
-      created_by: user?.id || '',
-      is_active: true,
-      max_players: 8,
-      current_players: 5,
-      state: { status: 'waiting' },
-      created_at: new Date().toISOString(),
-    },
-  ];
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     fetchGames();
+    checkAdminStatus();
+    
+    // Set up real-time subscription for games
+    const subscription = GameService.subscribeToAllGames((payload) => {
+      console.log('Games real-time update:', payload);
+      fetchGames(); // Refresh games when changes occur
+    });
+    
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
+
+  const checkAdminStatus = async () => {
+    try {
+      const adminStatus = await GameService.isCurrentUserAdmin();
+      setIsAdmin(adminStatus);
+    } catch (error) {
+      console.error('Error checking admin status:', error);
+    }
+  };
 
   const fetchGames = async () => {
     try {
       setLoading(true);
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      setGames(mockGames);
+      const fetchedGames = await GameService.getGames();
+      setGames(fetchedGames);
     } catch (error) {
       console.error('Error fetching games:', error);
+      Alert.alert('Error', 'Failed to load games. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -129,19 +102,94 @@ export default function GamesScreen() {
     );
   };
 
-  const createGame = (type: Game['type']) => {
-    // Navigate to game creation screen
-    router.push(`/games/create-${type}` as any);
+  const createGame = async (type: Game['type']) => {
+    // For now, create a basic game. Later you can add a creation modal/screen
+    const gameNames = {
+      buzzer: 'Quick Buzzer Game',
+      trivia: 'Trivia Challenge',
+      spin_bottle: 'Spin the Bottle',
+      poll: 'Quick Poll'
+    };
+
+    try {
+      const newGame = await GameService.createGame({
+        name: gameNames[type],
+        type,
+        max_players: type === 'spin_bottle' ? 8 : type === 'trivia' ? 20 : 10,
+        min_players: 2
+      });
+      
+      fetchGames(); // Refresh the list
+      Alert.alert('Success', `${gameNames[type]} created successfully!`);
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Failed to create game');
+    }
   };
 
-  const handleJoinGame = (game: Game) => {
+  const handleJoinGame = async (game: Game) => {
     if (game.current_players >= (game.max_players || 10)) {
       Alert.alert('Game Full', 'This game is already full.');
       return;
     }
-    
-    // Navigate to specific game screen
-    router.push(`/games/${game.type}/${game.id}` as any);
+
+    try {
+      await GameService.joinGame(game.id);
+      
+      // Show success message and refresh
+      Alert.alert(
+        'Joined Game!', 
+        game.session_active 
+          ? 'You have joined the active game session.' 
+          : `You have joined the game lobby. Game will start when ${game.min_players} players have joined.`,
+        [
+          { text: 'OK', onPress: () => {
+            fetchGames(); // Refresh to show updated player count
+            // Navigate to game screen
+            router.push(`/games/${game.type}/${game.id}` as any);
+          }}
+        ]
+      );
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Failed to join game');
+    }
+  };
+
+  const handleStartSession = async (gameId: string) => {
+    if (!isAdmin) {
+      Alert.alert('Admin Required', 'Only administrators can start game sessions.');
+      return;
+    }
+
+    try {
+      await GameService.startGameSession(gameId);
+      fetchGames(); // Refresh games list
+      Alert.alert('Success', 'Game session started successfully!');
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Failed to start game session');
+    }
+  };
+
+  const handleEndSession = async (gameId: string, gameName: string) => {
+    Alert.alert(
+      'End Game Session',
+      `Are you sure you want to end the session for "${gameName}"? Players will be disconnected from active gameplay.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'End Session',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await GameService.endGameSession(gameId);
+              fetchGames(); // Refresh games list
+              Alert.alert('Success', 'Game session ended successfully!');
+            } catch (error: any) {
+              Alert.alert('Error', error.message || 'Failed to end game session');
+            }
+          }
+        }
+      ]
+    );
   };
 
   const renderGameCard = (game: Game) => {
@@ -149,6 +197,8 @@ export default function GamesScreen() {
     const color = gameTypeColors[game.type];
     const isGameFull = game.current_players >= (game.max_players || 10);
     const isCreatedByUser = game.created_by === user?.id;
+    const canJoinGame = !isGameFull; // Users can join both active and inactive games (lobby)
+    const needsMinPlayers = game.current_players < game.min_players;
 
     return (
       <Card key={game.id} variant="elevated" className="mb-4 mx-4">
@@ -171,21 +221,21 @@ export default function GamesScreen() {
           </View>
           
           <View className={`px-2 py-1 rounded-full ${
-            game.state.status === 'active' 
+            game.session_active 
               ? 'bg-green-100' 
-              : game.state.status === 'waiting'
-              ? 'bg-yellow-100'
-              : 'bg-gray-100'
+              : game.session_status === 'ready'
+              ? 'bg-blue-100'
+              : 'bg-yellow-100'
           }`}>
             <Text className={`text-xs font-medium ${
-              game.state.status === 'active'
+              game.session_active
                 ? 'text-green-800'
-                : game.state.status === 'waiting'
-                ? 'text-yellow-800'
-                : 'text-gray-800'
+                : game.session_status === 'ready'
+                ? 'text-blue-800'
+                : 'text-yellow-800'
             }`}>
-              {game.state.status === 'active' ? 'In Progress' : 
-               game.state.status === 'waiting' ? 'Waiting' : 'Finished'}
+              {game.session_active ? 'Active' : 
+               game.session_status === 'ready' ? 'Ready to Start' : 'Waiting for Players'}
             </Text>
           </View>
         </View>
@@ -194,7 +244,10 @@ export default function GamesScreen() {
           <View className="flex-row items-center">
             <Ionicons name="people" size={16} color="#6B7280" />
             <Text className="text-sm text-gray-600 ml-1">
-              {game.current_players}/{game.max_players || 10} players
+              {game.current_players}/{game.max_players || '∞'} players 
+              {needsMinPlayers && (
+                <Text className="text-red-600 text-xs"> (min {game.min_players})</Text>
+              )}
             </Text>
           </View>
           
@@ -206,25 +259,85 @@ export default function GamesScreen() {
           </View>
         </View>
 
-        <View className="flex-row space-x-3">
-          <Button
-            title={isGameFull ? "Full" : "Join Game"}
-            onPress={() => handleJoinGame(game)}
-            disabled={isGameFull}
-            variant={isGameFull ? "outline" : "primary"}
-            size="sm"
-            className="flex-1"
-            leftIcon={<Ionicons name="play" size={16} color={isGameFull ? "#6B7280" : "#FFFFFF"} />}
-          />
+        <View className="space-y-2">
+          {/* Admin Controls */}
+          {(isAdmin || isCreatedByUser) && (
+            <View className="flex-row space-x-2 mb-2">
+              {!game.session_active && game.session_status === 'ready' && (
+                <Button
+                  title="Start Session"
+                  onPress={() => handleStartSession(game.id)}
+                  variant="primary"
+                  size="sm"
+                  className="flex-1"
+                  leftIcon={<Ionicons name="play" size={16} color="#FFFFFF" />}
+                />
+              )}
+              {game.session_active && (
+                <Button
+                  title="End Session"
+                  onPress={() => handleEndSession(game.id, game.name)}
+                  variant="destructive"
+                  size="sm"
+                  className="flex-1"
+                  leftIcon={<Ionicons name="stop" size={16} color="#FFFFFF" />}
+                />
+              )}
+            </View>
+          )}
           
-          {isCreatedByUser && (
+          {/* Admin/Creator Badge */}
+          {(isAdmin || isCreatedByUser) && (
+            <View className="flex-row items-center justify-center mb-2">
+              <Ionicons name="shield-checkmark" size={12} color="#10B981" />
+              <Text className="text-xs text-green-600 ml-1 font-medium">
+                {isAdmin ? 'Admin Controls' : 'Your Game'}
+              </Text>
+            </View>
+          )}
+          
+          {/* Player Action Buttons */}
+          <View className="flex-row space-x-3">
             <Button
-              title="Manage"
-              onPress={() => Alert.alert('Manage Game', 'Game management would go here')}
-              variant="outline"
+              title={
+                isGameFull ? "Game Full" : 
+                game.session_active ? "Join Game" : "Join Lobby"
+              }
+              onPress={() => handleJoinGame(game)}
+              disabled={!canJoinGame}
+              variant={canJoinGame ? "primary" : "outline"}
               size="sm"
               className="flex-1"
+              leftIcon={<Ionicons name="play" size={16} color={canJoinGame ? "#FFFFFF" : "#6B7280"} />}
             />
+            
+            {(isCreatedByUser || isAdmin) && (
+              <Button
+                title="Manage"
+                onPress={() => router.push(`/games/manage/${game.id}` as any)}
+                variant="outline"
+                size="sm"
+                className="flex-1"
+                leftIcon={<Ionicons name="settings" size={16} color="#6B7280" />}
+              />
+            )}
+          </View>
+          
+          {/* Info Messages */}
+          {!game.session_active && needsMinPlayers && (
+            <Text className="text-xs text-amber-600 text-center">
+              Lobby: {game.current_players}/{game.min_players} players joined • Needs {game.min_players - game.current_players} more to start
+            </Text>
+          )}
+          {!game.session_active && !needsMinPlayers && (
+            <Text className="text-xs text-green-600 text-center">
+              Ready to start! Admin can begin the session.
+            </Text>
+          )}
+          {game.session_active && (
+            <Text className="text-xs text-green-600 text-center">
+              🎮 Session Active • Join to play!
+            </Text>
           )}
         </View>
       </Card>
